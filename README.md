@@ -4,31 +4,50 @@ Personal stock analysis tool: enter a ticker, get a structured BUY/HOLD/SELL rat
 
 **Personal research tool. Not financial advice. Past performance does not predict future results.**
 
-## Setup
+## First-time setup
+
+You'll need Python 3.11+ and Node.js 20+ installed.
+
+1. Open Terminal and `cd` into this folder.
+2. Create a Python environment and install dependencies:
+
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -e ".[dev]"
+   ```
+
+3. Create your `.env` file from the template:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Open `.env` in any text editor and paste in your `ANTHROPIC_API_KEY`
+   (required — get one at https://console.anthropic.com).
+   `FINNHUB_API_KEY` and `ALPHAVANTAGE_API_KEY` are optional and improve
+   news/competitor data quality if set.
+
+## Running the app
+
+From this folder, run:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-cp .env.example .env
-# Fill in ANTHROPIC_API_KEY (required), FINNHUB_API_KEY + ALPHAVANTAGE_API_KEY (optional)
+./dev.sh
 ```
 
-## Run
+That single command starts both the backend (port 8000) and the frontend
+(port 3000), and installs frontend dependencies on first run. Once you
+see startup logs from both, open **http://localhost:3000** in your
+browser.
 
-Backend (FastAPI, port 8000):
+Press **Ctrl+C** in the terminal to stop everything cleanly.
 
-```bash
-uvicorn claude_stocks.api.main:app --reload --port 8000
-```
+### If `./dev.sh` won't run
 
-Frontend (Next.js, port 3000):
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
+- **"permission denied"** — run `chmod +x dev.sh` once, then try again.
+- **".env not found"** or **".venv not found"** — finish the
+  *First-time setup* steps above.
 
 ## Test
 
