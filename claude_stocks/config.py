@@ -48,4 +48,5 @@ PROVIDER_CACHE_TTL_SECONDS = {
     "news": 30 * 60,
     "competitors": 24 * 60 * 60,
     "earnings_calendar": 6 * 60 * 60,
+    "logo_url": 30 * 24 * 60 * 60,
 }

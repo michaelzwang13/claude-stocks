@@ -162,6 +162,60 @@ def list_analyses(limit: int = Query(default=100, ge=1, le=500)) -> list[Analysi
     return [_summary_from_record(r) for r in analyses_repo.list_recent(limit=limit)]
 
 
+class CurrentQuote(BaseModel):
+    ticker: str
+    price: float
+    timestamp: str
+
+
+@app.get("/api/logos")
+def logos(tickers: str = Query(..., description="Comma-separated tickers")) -> dict[str, dict[str, str | None]]:
+    """Logo URLs (Finnhub-hosted CDN) for the given tickers, cached 30 days.
+
+    Returns {"logos": {TICKER: url-or-null}}. Frontend should fallback to an
+    initial-letter badge on null.
+    """
+    symbols = sorted({t.strip().upper() for t in tickers.split(",") if t.strip()})
+    if not symbols:
+        return {"logos": {}}
+    if len(symbols) > 100:
+        raise HTTPException(status_code=400, detail="too many tickers (max 100)")
+
+    provider = build_default_provider()
+    out: dict[str, str | None] = {}
+    for t in symbols:
+        try:
+            out[t] = provider.get_logo_url(t)
+        except Exception:
+            out[t] = None
+    return {"logos": out}
+
+
+@app.get("/api/quotes/current")
+def current_quotes(tickers: str = Query(..., description="Comma-separated tickers")) -> dict[str, Any]:
+    """Latest quotes for the given tickers, cached 15 min in provider_cache.
+
+    Returns {"quotes": {TICKER: {price, timestamp}}, "errors": {TICKER: msg}}.
+    Missing/failed tickers go into `errors`; partial responses are normal.
+    """
+    symbols = sorted({t.strip().upper() for t in tickers.split(",") if t.strip()})
+    if not symbols:
+        return {"quotes": {}, "errors": {}}
+    if len(symbols) > 100:
+        raise HTTPException(status_code=400, detail="too many tickers (max 100)")
+
+    provider = build_default_provider()
+    quotes: dict[str, dict[str, Any]] = {}
+    errors: dict[str, str] = {}
+    for t in symbols:
+        try:
+            q = provider.get_quote(t)
+            quotes[t] = {"price": q.price, "timestamp": q.timestamp.isoformat()}
+        except Exception as e:
+            errors[t] = str(e)[:200]
+    return {"quotes": quotes, "errors": errors}
+
+
 @app.get("/api/analyses/{analysis_id}", response_model=AnalysisDetail)
 def get_analysis(analysis_id: int) -> AnalysisDetail:
     rec = analyses_repo.get_by_id(analysis_id)

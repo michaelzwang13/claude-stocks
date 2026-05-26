@@ -1,22 +1,32 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Filter, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, Filter, Info, Search } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { AppShell } from "@/components/shell/app-shell";
 import { Input } from "@/components/ui/input";
-import { Panel, PanelHeader } from "@/components/ui/panel";
+import { Panel } from "@/components/ui/panel";
 import { RatingPill } from "@/components/ui/rating-pill";
+import { TickerLogo } from "@/components/ui/ticker-logo";
+import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import {
   type BacktestAggregates,
+  type CurrentQuotesResponse,
   fetcher,
+  type LogosResponse,
   type Rating,
 } from "@/lib/api";
 import { cn, formatPct, formatUSD, relativeTime, shortDate } from "@/lib/utils";
 
 type Row = BacktestAggregates["per_analysis"][number];
 type SortKey = "created_at" | "ticker" | "overall_score" | "r_1w" | "r_1m" | "r_3m" | "r_6m" | "r_1y";
+
+const QUOTE_DISCLAIMER =
+  "Live quote from yfinance (free tier). Cached 15 min server-side and may be delayed 15–30 min vs the real market. Not for trading decisions.";
+
+const ALPHA_EXPLAINER =
+  "α 1W = ticker return minus SPY return over the 1 week after the analysis. Positive means it beat SPY.";
 
 const RATING_FILTERS: { label: string; value: Rating | "ALL" }[] = [
   { label: "All",  value: "ALL"  },
@@ -29,6 +39,25 @@ export default function PastAnalysesPage() {
   const { data, isLoading } = useSWR<BacktestAggregates>(
     "/api/backtest/aggregates",
     fetcher,
+  );
+
+  const tickersParam = useMemo(() => {
+    if (!data) return null;
+    const unique = Array.from(new Set(data.per_analysis.map((r) => r.ticker))).sort();
+    return unique.length ? unique.join(",") : null;
+  }, [data]);
+
+  const { data: quotes } = useSWR<CurrentQuotesResponse>(
+    tickersParam ? `/api/quotes/current?tickers=${encodeURIComponent(tickersParam)}` : null,
+    fetcher,
+    { refreshInterval: 5 * 60 * 1000 },
+  );
+
+  // Logos: 30-day server cache, so revalidate sparingly on the client too.
+  const { data: logos } = useSWR<LogosResponse>(
+    tickersParam ? `/api/logos?tickers=${encodeURIComponent(tickersParam)}` : null,
+    fetcher,
+    { revalidateOnFocus: false, dedupingInterval: 60 * 60 * 1000 },
   );
 
   const [search, setSearch] = useState("");
@@ -66,6 +95,7 @@ export default function PastAnalysesPage() {
 
   return (
     <AppShell context="Past analyses">
+      <TooltipProvider>
       <div className="mx-auto max-w-[1400px] p-8">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -125,38 +155,49 @@ export default function PastAnalysesPage() {
                   <Th label="Rating" />
                   <Th label="Score"    sortable sortKey="overall_score" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
                   <Th label="Entry"    align="right" />
+                  <Th
+                    label="Now"
+                    align="right"
+                    tooltip={QUOTE_DISCLAIMER}
+                  />
                   <Th label="1W"       sortable sortKey="r_1w" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
                   <Th label="1M"       sortable sortKey="r_1m" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
                   <Th label="3M"       sortable sortKey="r_3m" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
                   <Th label="6M"       sortable sortKey="r_6m" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
                   <Th label="1Y"       sortable sortKey="r_1y" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
-                  <Th label="α 1W"     align="right" />
+                  <Th label="α 1W"     align="right" tooltip={ALPHA_EXPLAINER} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-1)]">
                 {isLoading &&
                   Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={11} className="p-3">
+                      <td colSpan={12} className="p-3">
                         <div className="h-5 rounded shimmer" />
                       </td>
                     </tr>
                   ))}
                 {!isLoading && filtered.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="p-10 text-center font-mono text-[12px] text-[var(--text-3)]">
+                    <td colSpan={12} className="p-10 text-center font-mono text-[12px] text-[var(--text-3)]">
                       No analyses match the current filters.
                     </td>
                   </tr>
                 )}
                 {filtered.map((r) => (
-                  <AnalysisRow key={r.id} row={r} />
+                  <AnalysisRow
+                    key={r.id}
+                    row={r}
+                    currentPrice={quotes?.quotes[r.ticker]?.price ?? null}
+                    logoUrl={logos?.logos[r.ticker] ?? null}
+                  />
                 ))}
               </tbody>
             </table>
           </div>
         </Panel>
       </div>
+      </TooltipProvider>
     </AppShell>
   );
 }
@@ -169,6 +210,7 @@ function Th({
   currentKey,
   currentDir,
   onSort,
+  tooltip,
 }: {
   label: string;
   align?: "left" | "right";
@@ -177,6 +219,7 @@ function Th({
   currentKey?: SortKey;
   currentDir?: "asc" | "desc";
   onSort?: (k: SortKey) => void;
+  tooltip?: string;
 }) {
   const active = sortable && sortKey === currentKey;
   return (
@@ -191,12 +234,30 @@ function Th({
       <span className={cn("inline-flex items-center gap-1", align === "right" && "flex-row-reverse")}>
         <span className={active ? "text-[var(--accent)]" : ""}>{label}</span>
         {active && (currentDir === "asc" ? <ArrowUp className="h-2.5 w-2.5" /> : <ArrowDown className="h-2.5 w-2.5" />)}
+        {tooltip && (
+          <Tooltip content={tooltip}>
+            <Info
+              className="h-2.5 w-2.5 text-[var(--text-4)] hover:text-[var(--text-2)] cursor-help"
+              aria-label={tooltip}
+            />
+          </Tooltip>
+        )}
       </span>
     </th>
   );
 }
 
-function AnalysisRow({ row }: { row: Row }) {
+function AnalysisRow({
+  row,
+  currentPrice,
+  logoUrl,
+}: {
+  row: Row;
+  currentPrice: number | null;
+  logoUrl: string | null;
+}) {
+  const pctSinceEntry =
+    currentPrice !== null ? (currentPrice / row.entry_price - 1) * 100 : null;
   return (
     <tr className="group relative transition-colors hover:bg-[var(--bg-elev-2)]/40">
       <td className="px-3 py-2.5">
@@ -205,7 +266,10 @@ function AnalysisRow({ row }: { row: Row }) {
         <div className="text-[10px] text-[var(--text-4)]">{relativeTime(row.created_at)}</div>
       </td>
       <td className="px-3 py-2.5">
-        <span className="font-semibold text-[var(--text-1)]">{row.ticker}</span>
+        <span className="inline-flex items-center gap-2">
+          <TickerLogo ticker={row.ticker} src={logoUrl} size={20} />
+          <span className="font-semibold text-[var(--text-1)]">{row.ticker}</span>
+        </span>
       </td>
       <td className="px-3 py-2.5">
         <RatingPill rating={row.overall_rating} size="xs" />
@@ -217,6 +281,27 @@ function AnalysisRow({ row }: { row: Row }) {
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums text-[var(--text-2)]">
         {formatUSD(row.entry_price)}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums">
+        {currentPrice === null ? (
+          <span className="text-[var(--text-4)]">—</span>
+        ) : (
+          <div className="relative z-10 inline-flex flex-col items-end leading-tight">
+            <span className="text-[var(--text-1)]">{formatUSD(currentPrice)}</span>
+            <span
+              className={cn(
+                "text-[10px]",
+                pctSinceEntry === null
+                  ? "text-[var(--text-4)]"
+                  : pctSinceEntry >= 0
+                    ? "text-[var(--bull)]"
+                    : "text-[var(--bear)]",
+              )}
+            >
+              {formatPct(pctSinceEntry)}
+            </span>
+          </div>
+        )}
       </td>
       <ReturnCell value={row.r_1w} />
       <ReturnCell value={row.r_1m} />

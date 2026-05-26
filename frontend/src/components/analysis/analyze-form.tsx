@@ -211,12 +211,23 @@ function RecentAnalysesPreview() {
 
 import useSWR from "swr";
 import { RatingPill } from "@/components/ui/rating-pill";
+import { TickerLogo } from "@/components/ui/ticker-logo";
 import { formatUSD, relativeTime, shortDate } from "@/lib/utils";
-import type { AnalysisSummary } from "@/lib/api";
+import type { AnalysisSummary, LogosResponse } from "@/lib/api";
 import Link from "next/link";
 
 function RecentAnalysesPreviewClient() {
   const { data: items } = useSWR<AnalysisSummary[]>("/api/analyses?limit=6", fetcher);
+
+  const tickersParam = items && items.length
+    ? Array.from(new Set(items.map((a) => a.ticker))).sort().join(",")
+    : null;
+  const { data: logos } = useSWR<LogosResponse>(
+    tickersParam ? `/api/logos?tickers=${encodeURIComponent(tickersParam)}` : null,
+    fetcher,
+    { revalidateOnFocus: false, dedupingInterval: 60 * 60 * 1000 },
+  );
+
   if (!items) {
     return (
       <Panel padding="md">
@@ -246,8 +257,9 @@ function RecentAnalysesPreviewClient() {
             href={`/analyses/${a.id}`}
             className="group relative rounded-md border border-[var(--border-1)] bg-[var(--bg-elev-2)]/30 p-4 transition-all hover:border-[var(--border-2)] hover:bg-[var(--bg-elev-2)]/60"
           >
-            <div className="flex items-baseline justify-between">
-              <div className="flex items-baseline gap-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <TickerLogo ticker={a.ticker} src={logos?.logos[a.ticker] ?? null} size={28} />
                 <span className="font-mono text-lg font-semibold text-[var(--text-1)]">{a.ticker}</span>
                 <RatingPill rating={a.overall_rating} size="xs" />
               </div>
