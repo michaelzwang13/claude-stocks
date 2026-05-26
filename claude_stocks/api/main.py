@@ -24,7 +24,7 @@ from claude_stocks.analysis.pipeline import (
 )
 from claude_stocks.analysis.schemas import FACTORS
 from claude_stocks.backtest.refresh import refresh_all
-from claude_stocks.backtest.scheduler import init_scheduler, maybe_catchup
+from claude_stocks.backtest.scheduler import init_scheduler, maybe_catchup, shutdown_scheduler
 from claude_stocks.config import (
     ANTHROPIC_API_KEY,
     DAILY_COST_CAP_USD,
@@ -44,8 +44,12 @@ log = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     apply_schema()
     init_scheduler()
-    maybe_catchup()
-    yield
+    # Run catchup off the event loop so startup doesn't block on yfinance.
+    asyncio.create_task(asyncio.to_thread(maybe_catchup))
+    try:
+        yield
+    finally:
+        shutdown_scheduler()
 
 
 app = FastAPI(title="Claude-Stocks API", version="0.1.0", lifespan=lifespan)

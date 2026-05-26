@@ -1,8 +1,9 @@
 """APScheduler init.
 
-Runs inside the Streamlit process. The scheduler is a module-global singleton
-so it survives Streamlit's script-rerun behavior; on startup we also trigger a
+The scheduler is a module-global singleton; on startup we also trigger a
 catch-up refresh if the last one was > 24h ago (covers app-was-closed cases).
+Callers must invoke `shutdown_scheduler()` on app exit — otherwise its
+background thread leaks across uvicorn reloads.
 """
 from __future__ import annotations
 
@@ -39,8 +40,25 @@ def init_scheduler() -> BackgroundScheduler:
     return _scheduler
 
 
+def shutdown_scheduler() -> None:
+    """Stop the scheduler if running. Safe to call multiple times."""
+    global _scheduler
+    if _scheduler is not None and _scheduler.running:
+        _scheduler.shutdown(wait=False)
+    _scheduler = None
+
+
 def maybe_catchup() -> bool:
-    """If last refresh > 24h ago (or never), trigger one. Returns True if fired."""
+    """If last refresh > 24h ago, trigger one. Returns True if fired.
+
+    Skipped entirely when there are no analyses yet — otherwise every reload
+    would refetch ~3y of SPY history.
+    """
+    from claude_stocks.db import analyses_repo
+
+    if not analyses_repo.list_recent(limit=1):
+        return False
+
     last = performance_repo.last_refresh_at()
     if last is None:
         _safe_refresh()
