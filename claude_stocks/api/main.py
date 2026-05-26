@@ -168,6 +168,29 @@ class CurrentQuote(BaseModel):
     timestamp: str
 
 
+@app.get("/api/logos")
+def logos(tickers: str = Query(..., description="Comma-separated tickers")) -> dict[str, dict[str, str | None]]:
+    """Logo URLs (Finnhub-hosted CDN) for the given tickers, cached 30 days.
+
+    Returns {"logos": {TICKER: url-or-null}}. Frontend should fallback to an
+    initial-letter badge on null.
+    """
+    symbols = sorted({t.strip().upper() for t in tickers.split(",") if t.strip()})
+    if not symbols:
+        return {"logos": {}}
+    if len(symbols) > 100:
+        raise HTTPException(status_code=400, detail="too many tickers (max 100)")
+
+    provider = build_default_provider()
+    out: dict[str, str | None] = {}
+    for t in symbols:
+        try:
+            out[t] = provider.get_logo_url(t)
+        except Exception:
+            out[t] = None
+    return {"logos": out}
+
+
 @app.get("/api/quotes/current")
 def current_quotes(tickers: str = Query(..., description="Comma-separated tickers")) -> dict[str, Any]:
     """Latest quotes for the given tickers, cached 15 min in provider_cache.

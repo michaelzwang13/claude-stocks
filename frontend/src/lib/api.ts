@@ -121,6 +121,10 @@ export interface CurrentQuotesResponse {
   errors: Record<string, string>;
 }
 
+export interface LogosResponse {
+  logos: Record<string, string | null>;
+}
+
 export interface CostStatus {
   spent_usd: number;
   cap_usd: number;

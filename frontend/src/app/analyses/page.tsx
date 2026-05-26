@@ -8,11 +8,13 @@ import { AppShell } from "@/components/shell/app-shell";
 import { Input } from "@/components/ui/input";
 import { Panel } from "@/components/ui/panel";
 import { RatingPill } from "@/components/ui/rating-pill";
+import { TickerLogo } from "@/components/ui/ticker-logo";
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import {
   type BacktestAggregates,
   type CurrentQuotesResponse,
   fetcher,
+  type LogosResponse,
   type Rating,
 } from "@/lib/api";
 import { cn, formatPct, formatUSD, relativeTime, shortDate } from "@/lib/utils";
@@ -49,6 +51,13 @@ export default function PastAnalysesPage() {
     tickersParam ? `/api/quotes/current?tickers=${encodeURIComponent(tickersParam)}` : null,
     fetcher,
     { refreshInterval: 5 * 60 * 1000 },
+  );
+
+  // Logos: 30-day server cache, so revalidate sparingly on the client too.
+  const { data: logos } = useSWR<LogosResponse>(
+    tickersParam ? `/api/logos?tickers=${encodeURIComponent(tickersParam)}` : null,
+    fetcher,
+    { revalidateOnFocus: false, dedupingInterval: 60 * 60 * 1000 },
   );
 
   const [search, setSearch] = useState("");
@@ -176,7 +185,12 @@ export default function PastAnalysesPage() {
                   </tr>
                 )}
                 {filtered.map((r) => (
-                  <AnalysisRow key={r.id} row={r} currentPrice={quotes?.quotes[r.ticker]?.price ?? null} />
+                  <AnalysisRow
+                    key={r.id}
+                    row={r}
+                    currentPrice={quotes?.quotes[r.ticker]?.price ?? null}
+                    logoUrl={logos?.logos[r.ticker] ?? null}
+                  />
                 ))}
               </tbody>
             </table>
@@ -233,7 +247,15 @@ function Th({
   );
 }
 
-function AnalysisRow({ row, currentPrice }: { row: Row; currentPrice: number | null }) {
+function AnalysisRow({
+  row,
+  currentPrice,
+  logoUrl,
+}: {
+  row: Row;
+  currentPrice: number | null;
+  logoUrl: string | null;
+}) {
   const pctSinceEntry =
     currentPrice !== null ? (currentPrice / row.entry_price - 1) * 100 : null;
   return (
@@ -244,7 +266,10 @@ function AnalysisRow({ row, currentPrice }: { row: Row; currentPrice: number | n
         <div className="text-[10px] text-[var(--text-4)]">{relativeTime(row.created_at)}</div>
       </td>
       <td className="px-3 py-2.5">
-        <span className="font-semibold text-[var(--text-1)]">{row.ticker}</span>
+        <span className="inline-flex items-center gap-2">
+          <TickerLogo ticker={row.ticker} src={logoUrl} size={20} />
+          <span className="font-semibold text-[var(--text-1)]">{row.ticker}</span>
+        </span>
       </td>
       <td className="px-3 py-2.5">
         <RatingPill rating={row.overall_rating} size="xs" />
