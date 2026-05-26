@@ -116,6 +116,11 @@ export interface BacktestAggregates {
   last_refresh_at: string | null;
 }
 
+export interface CurrentQuotesResponse {
+  quotes: Record<string, { price: number; timestamp: string }>;
+  errors: Record<string, string>;
+}
+
 export interface CostStatus {
   spent_usd: number;
   cap_usd: number;
