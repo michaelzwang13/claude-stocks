@@ -1,0 +1,241 @@
+"use client";
+
+import { ArrowDown, ArrowUp, Filter, Search } from "lucide-react";
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import useSWR from "swr";
+import { AppShell } from "@/components/shell/app-shell";
+import { Input } from "@/components/ui/input";
+import { Panel, PanelHeader } from "@/components/ui/panel";
+import { RatingPill } from "@/components/ui/rating-pill";
+import {
+  type BacktestAggregates,
+  fetcher,
+  type Rating,
+} from "@/lib/api";
+import { cn, formatPct, formatUSD, relativeTime, shortDate } from "@/lib/utils";
+
+type Row = BacktestAggregates["per_analysis"][number];
+type SortKey = "created_at" | "ticker" | "overall_score" | "r_1w" | "r_1m" | "r_3m" | "r_6m" | "r_1y";
+
+const RATING_FILTERS: { label: string; value: Rating | "ALL" }[] = [
+  { label: "All",  value: "ALL"  },
+  { label: "Buy",  value: "BUY"  },
+  { label: "Hold", value: "HOLD" },
+  { label: "Sell", value: "SELL" },
+];
+
+export default function PastAnalysesPage() {
+  const { data, isLoading } = useSWR<BacktestAggregates>(
+    "/api/backtest/aggregates",
+    fetcher,
+  );
+
+  const [search, setSearch] = useState("");
+  const [ratingFilter, setRatingFilter] = useState<Rating | "ALL">("ALL");
+  const [sortKey, setSortKey] = useState<SortKey>("created_at");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    const rows = data.per_analysis.filter((r) => {
+      if (ratingFilter !== "ALL" && r.overall_rating !== ratingFilter) return false;
+      if (search && !r.ticker.includes(search.toUpperCase())) return false;
+      return true;
+    });
+    rows.sort((a, b) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      const an = av === null || av === undefined ? -Infinity : av;
+      const bn = bv === null || bv === undefined ? -Infinity : bv;
+      if (typeof an === "string" && typeof bn === "string") {
+        return sortDir === "asc" ? an.localeCompare(bn) : bn.localeCompare(an);
+      }
+      return sortDir === "asc" ? (an as number) - (bn as number) : (bn as number) - (an as number);
+    });
+    return rows;
+  }, [data, search, ratingFilter, sortKey, sortDir]);
+
+  function toggleSort(k: SortKey) {
+    if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(k);
+      setSortDir("desc");
+    }
+  }
+
+  return (
+    <AppShell context="Past analyses">
+      <div className="mx-auto max-w-[1400px] p-8">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="font-mono text-[28px] font-semibold leading-tight text-[var(--text-1)]">
+              Past analyses<span className="text-[var(--accent)]">.</span>
+            </h1>
+            <p className="mt-1 text-[14px] text-[var(--text-3)]">
+              {data ? `${data.per_analysis.length} total · forward-tracked vs. SPY` : "Loading…"}
+            </p>
+          </div>
+          <Link
+            href="/analyze"
+            className="rounded-md bg-[var(--accent)] px-4 py-2 font-mono text-xs uppercase tracking-[0.14em] text-[var(--bg-base)] hover:brightness-110"
+          >
+            New analysis
+          </Link>
+        </div>
+
+        <Panel padding="none" className="overflow-hidden">
+          {/* Filter row */}
+          <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border-1)] p-3">
+            <div className="relative flex-1 min-w-[240px]">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-3)]" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value.toUpperCase())}
+                placeholder="filter by ticker"
+                className="pl-9"
+              />
+            </div>
+            <div className="flex items-center gap-1 rounded-md border border-[var(--border-2)] bg-[var(--bg-elev-1)] p-1">
+              <Filter className="ml-1.5 h-3 w-3 text-[var(--text-3)]" />
+              {RATING_FILTERS.map((f) => (
+                <button
+                  key={f.value}
+                  onClick={() => setRatingFilter(f.value)}
+                  className={cn(
+                    "rounded px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.12em] transition-colors cursor-pointer",
+                    ratingFilter === f.value
+                      ? "bg-[var(--bg-elev-2)] text-[var(--text-1)]"
+                      : "text-[var(--text-3)] hover:text-[var(--text-2)]",
+                  )}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full font-mono text-[12px]">
+              <thead className="bg-[var(--bg-elev-2)]/40">
+                <tr className="text-left text-[10px] uppercase tracking-[0.14em] text-[var(--text-3)]">
+                  <Th label="When"     sortable sortKey="created_at"   currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+                  <Th label="Ticker"   sortable sortKey="ticker"       currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+                  <Th label="Rating" />
+                  <Th label="Score"    sortable sortKey="overall_score" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
+                  <Th label="Entry"    align="right" />
+                  <Th label="1W"       sortable sortKey="r_1w" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
+                  <Th label="1M"       sortable sortKey="r_1m" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
+                  <Th label="3M"       sortable sortKey="r_3m" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
+                  <Th label="6M"       sortable sortKey="r_6m" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
+                  <Th label="1Y"       sortable sortKey="r_1y" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
+                  <Th label="α 1W"     align="right" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border-1)]">
+                {isLoading &&
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i}>
+                      <td colSpan={11} className="p-3">
+                        <div className="h-5 rounded shimmer" />
+                      </td>
+                    </tr>
+                  ))}
+                {!isLoading && filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={11} className="p-10 text-center font-mono text-[12px] text-[var(--text-3)]">
+                      No analyses match the current filters.
+                    </td>
+                  </tr>
+                )}
+                {filtered.map((r) => (
+                  <AnalysisRow key={r.id} row={r} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      </div>
+    </AppShell>
+  );
+}
+
+function Th({
+  label,
+  align = "left",
+  sortable,
+  sortKey,
+  currentKey,
+  currentDir,
+  onSort,
+}: {
+  label: string;
+  align?: "left" | "right";
+  sortable?: boolean;
+  sortKey?: SortKey;
+  currentKey?: SortKey;
+  currentDir?: "asc" | "desc";
+  onSort?: (k: SortKey) => void;
+}) {
+  const active = sortable && sortKey === currentKey;
+  return (
+    <th
+      className={cn(
+        "px-3 py-2.5 font-normal",
+        align === "right" && "text-right",
+        sortable && "cursor-pointer select-none hover:text-[var(--text-1)]",
+      )}
+      onClick={sortable && sortKey ? () => onSort?.(sortKey) : undefined}
+    >
+      <span className={cn("inline-flex items-center gap-1", align === "right" && "flex-row-reverse")}>
+        <span className={active ? "text-[var(--accent)]" : ""}>{label}</span>
+        {active && (currentDir === "asc" ? <ArrowUp className="h-2.5 w-2.5" /> : <ArrowDown className="h-2.5 w-2.5" />)}
+      </span>
+    </th>
+  );
+}
+
+function AnalysisRow({ row }: { row: Row }) {
+  return (
+    <tr className="group relative transition-colors hover:bg-[var(--bg-elev-2)]/40">
+      <td className="px-3 py-2.5">
+        <Link href={`/analyses/${row.id}`} className="absolute inset-0" />
+        <div className="text-[var(--text-2)]">{shortDate(row.created_at)}</div>
+        <div className="text-[10px] text-[var(--text-4)]">{relativeTime(row.created_at)}</div>
+      </td>
+      <td className="px-3 py-2.5">
+        <span className="font-semibold text-[var(--text-1)]">{row.ticker}</span>
+      </td>
+      <td className="px-3 py-2.5">
+        <RatingPill rating={row.overall_rating} size="xs" />
+      </td>
+      <td className={cn("px-3 py-2.5 text-right tabular-nums",
+        row.overall_score >= 7 ? "text-[var(--bull)]" : row.overall_score >= 4 ? "text-[var(--warn)]" : "text-[var(--bear)]"
+      )}>
+        {row.overall_score.toFixed(1)}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums text-[var(--text-2)]">
+        {formatUSD(row.entry_price)}
+      </td>
+      <ReturnCell value={row.r_1w} />
+      <ReturnCell value={row.r_1m} />
+      <ReturnCell value={row.r_3m} />
+      <ReturnCell value={row.r_6m} />
+      <ReturnCell value={row.r_1y} />
+      <td className={cn("px-3 py-2.5 text-right tabular-nums",
+        row.a_1w === null ? "text-[var(--text-4)]" : row.a_1w >= 0 ? "text-[var(--bull)]" : "text-[var(--bear)]")}>
+        {row.a_1w === null ? "—" : formatPct(row.a_1w)}
+      </td>
+    </tr>
+  );
+}
+
+function ReturnCell({ value }: { value: number | null }) {
+  if (value === null) return <td className="px-3 py-2.5 text-right tabular-nums text-[var(--text-4)]">—</td>;
+  return (
+    <td className={cn("px-3 py-2.5 text-right tabular-nums", value >= 0 ? "text-[var(--bull)]" : "text-[var(--bear)]")}>
+      {formatPct(value)}
+    </td>
+  );
+}

@@ -16,8 +16,18 @@ cp .env.example .env
 
 ## Run
 
+Backend (FastAPI, port 8000):
+
 ```bash
-streamlit run app.py
+uvicorn claude_stocks.api.main:app --reload --port 8000
+```
+
+Frontend (Next.js, port 3000):
+
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
 ## Test
@@ -32,6 +42,7 @@ pytest
 - `claude_stocks/analysis/` — frozen system prompts, Pydantic output schemas, and the async pipeline that runs 5 factor calls in parallel (Sonnet 4.6) before a synthesis call (Opus 4.7).
 - `claude_stocks/db/` — SQLite schema, repos, idempotent migration.
 - `claude_stocks/backtest/` — daily refresh that computes ticker return + SPY alpha at each interval as time elapses.
-- `claude_stocks/ui/` — Streamlit views.
+- `claude_stocks/api/` — FastAPI app exposing analysis, backtest, and cost endpoints; `/api/analyze` streams progress via SSE.
+- `frontend/` — Next.js + TypeScript + Tailwind UI that talks to the FastAPI backend.
 
 Framework system prompts are cached with `cache_control: {"type": "ephemeral", "ttl": "1h"}`. Per-ticker data goes in the user message only (changing it would invalidate cache).
