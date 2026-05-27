@@ -10,10 +10,17 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useState } from "react";
-import type { AnalysisDetail as AnalysisDetailType, PerformanceSnapshot } from "@/lib/api";
+import useSWR from "swr";
+import {
+  type AnalysisDetail as AnalysisDetailType,
+  fetcher,
+  type LogosResponse,
+  type PerformanceSnapshot,
+} from "@/lib/api";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import { RatingPill } from "@/components/ui/rating-pill";
 import { Stat } from "@/components/ui/stat";
+import { TickerLogo } from "@/components/ui/ticker-logo";
 import { FactorCard } from "./factor-card";
 import { cn, formatPct, formatUSD, relativeTime, shortDate } from "@/lib/utils";
 
@@ -172,6 +179,13 @@ function TabTrigger({ value, label, icon }: { value: string; label: string; icon
 }
 
 function AnalysisHeader({ data }: { data: AnalysisDetailType }) {
+  const { data: logos } = useSWR<LogosResponse>(
+    `/api/logos?tickers=${encodeURIComponent(data.ticker)}`,
+    fetcher,
+    { revalidateOnFocus: false, dedupingInterval: 60 * 60 * 1000 },
+  );
+  const logoUrl = logos?.logos[data.ticker] ?? null;
+
   return (
     <Panel padding="lg" className="relative overflow-hidden">
       {/* tinted glow */}
@@ -189,13 +203,16 @@ function AnalysisHeader({ data }: { data: AnalysisDetailType }) {
 
       <div className="relative flex flex-wrap items-end justify-between gap-6">
         <div>
-          <div className="flex items-baseline gap-4">
-            <span className="font-mono text-[44px] font-semibold leading-none tracking-tight text-[var(--text-1)]">
-              {data.ticker}
-            </span>
-            <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--text-3)]">
-              {shortDate(data.created_at)} · {relativeTime(data.created_at)}
-            </span>
+          <div className="flex items-center gap-4">
+            <TickerLogo ticker={data.ticker} src={logoUrl} size={56} />
+            <div className="flex items-baseline gap-4">
+              <span className="font-mono text-[44px] font-semibold leading-none tracking-tight text-[var(--text-1)]">
+                {data.ticker}
+              </span>
+              <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--text-3)]">
+                {shortDate(data.created_at)} · {relativeTime(data.created_at)}
+              </span>
+            </div>
           </div>
           <div className="mt-3 flex items-center gap-3">
             <RatingPill rating={data.overall_rating} size="md" />
