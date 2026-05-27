@@ -2,7 +2,7 @@
 
 import { ArrowDown, ArrowUp, Filter, Info, Search } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { AppShell } from "@/components/shell/app-shell";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,18 @@ const RATING_FILTERS: { label: string; value: Rating | "ALL" }[] = [
   { label: "Sell", value: "SELL" },
 ];
 
+const SORT_STORAGE_KEY = "claude-stocks:analyses-sort";
+
+type SortState = { key: SortKey; dir: "asc" | "desc" };
+const DEFAULT_SORT: SortState = { key: "created_at", dir: "desc" };
+
+function isValidSortKey(v: unknown): v is SortKey {
+  return (
+    v === "created_at" || v === "ticker" || v === "overall_score" ||
+    v === "r_1w" || v === "r_1m" || v === "r_3m" || v === "r_6m" || v === "r_1y"
+  );
+}
+
 export default function PastAnalysesPage() {
   const { data, isLoading } = useSWR<BacktestAggregates>(
     "/api/backtest/aggregates",
@@ -62,8 +74,34 @@ export default function PastAnalysesPage() {
 
   const [search, setSearch] = useState("");
   const [ratingFilter, setRatingFilter] = useState<Rating | "ALL">("ALL");
-  const [sortKey, setSortKey] = useState<SortKey>("created_at");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
+
+  // Hydrate sort from sessionStorage on mount. The persist effect must skip
+  // its first invocation so it cannot overwrite a saved value with
+  // DEFAULT_SORT before the hydrated state lands. Using `useRef` (not the
+  // hydrate effect itself) to gate, so StrictMode's double-invoke can't race.
+  const skipNextPersist = useRef(true);
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(SORT_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<SortState>;
+        if (isValidSortKey(parsed.key) && (parsed.dir === "asc" || parsed.dir === "desc")) {
+          setSort({ key: parsed.key, dir: parsed.dir });
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (skipNextPersist.current) {
+      skipNextPersist.current = false;
+      return;
+    }
+    try {
+      sessionStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(sort));
+    } catch {}
+  }, [sort]);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -73,24 +111,24 @@ export default function PastAnalysesPage() {
       return true;
     });
     rows.sort((a, b) => {
-      const av = a[sortKey];
-      const bv = b[sortKey];
+      const av = a[sort.key];
+      const bv = b[sort.key];
       const an = av === null || av === undefined ? -Infinity : av;
       const bn = bv === null || bv === undefined ? -Infinity : bv;
       if (typeof an === "string" && typeof bn === "string") {
-        return sortDir === "asc" ? an.localeCompare(bn) : bn.localeCompare(an);
+        return sort.dir === "asc" ? an.localeCompare(bn) : bn.localeCompare(an);
       }
-      return sortDir === "asc" ? (an as number) - (bn as number) : (bn as number) - (an as number);
+      return sort.dir === "asc" ? (an as number) - (bn as number) : (bn as number) - (an as number);
     });
     return rows;
-  }, [data, search, ratingFilter, sortKey, sortDir]);
+  }, [data, search, ratingFilter, sort]);
 
   function toggleSort(k: SortKey) {
-    if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else {
-      setSortKey(k);
-      setSortDir("desc");
-    }
+    setSort((prev) =>
+      prev.key === k
+        ? { key: k, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key: k, dir: "desc" },
+    );
   }
 
   return (
@@ -150,21 +188,21 @@ export default function PastAnalysesPage() {
             <table className="w-full font-mono text-[12px]">
               <thead className="bg-[var(--bg-elev-2)]/40">
                 <tr className="text-left text-[10px] uppercase tracking-[0.14em] text-[var(--text-3)]">
-                  <Th label="When"     sortable sortKey="created_at"   currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
-                  <Th label="Ticker"   sortable sortKey="ticker"       currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+                  <Th label="When"     sortable sortKey="created_at"   currentKey={sort.key} currentDir={sort.dir} onSort={toggleSort} />
+                  <Th label="Ticker"   sortable sortKey="ticker"       currentKey={sort.key} currentDir={sort.dir} onSort={toggleSort} />
                   <Th label="Rating" />
-                  <Th label="Score"    sortable sortKey="overall_score" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
+                  <Th label="Score"    sortable sortKey="overall_score" currentKey={sort.key} currentDir={sort.dir} onSort={toggleSort} align="right" />
                   <Th label="Entry"    align="right" />
                   <Th
                     label="Now"
                     align="right"
                     tooltip={QUOTE_DISCLAIMER}
                   />
-                  <Th label="1W"       sortable sortKey="r_1w" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
-                  <Th label="1M"       sortable sortKey="r_1m" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
-                  <Th label="3M"       sortable sortKey="r_3m" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
-                  <Th label="6M"       sortable sortKey="r_6m" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
-                  <Th label="1Y"       sortable sortKey="r_1y" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} align="right" />
+                  <Th label="1W"       sortable sortKey="r_1w" currentKey={sort.key} currentDir={sort.dir} onSort={toggleSort} align="right" />
+                  <Th label="1M"       sortable sortKey="r_1m" currentKey={sort.key} currentDir={sort.dir} onSort={toggleSort} align="right" />
+                  <Th label="3M"       sortable sortKey="r_3m" currentKey={sort.key} currentDir={sort.dir} onSort={toggleSort} align="right" />
+                  <Th label="6M"       sortable sortKey="r_6m" currentKey={sort.key} currentDir={sort.dir} onSort={toggleSort} align="right" />
+                  <Th label="1Y"       sortable sortKey="r_1y" currentKey={sort.key} currentDir={sort.dir} onSort={toggleSort} align="right" />
                   <Th label="α 1W"     align="right" tooltip={ALPHA_EXPLAINER} />
                 </tr>
               </thead>
