@@ -77,3 +77,7 @@ CREATE TABLE IF NOT EXISTS purchases (
     created_at   TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_purchases_ticker ON purchases(ticker);
+CREATE TABLE IF NOT EXISTS favorites (
+    ticker      TEXT    PRIMARY KEY,
+    created_at  TEXT    NOT NULL
+);

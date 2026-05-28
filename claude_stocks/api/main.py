@@ -601,6 +601,24 @@ def create_purchase(req: PurchaseInput) -> dict[str, Any]:
 def delete_purchase(purchase_id: int) -> dict[str, bool]:
     purchases_repo.delete(purchase_id)
     return {"ok": True}
+# ---------- favorites ---------------------------------------------------------
+
+
+@app.get("/api/favorites")
+def list_favorites() -> dict[str, list[str]]:
+    return {"tickers": favorites_repo.list_favorites()}
+
+
+@app.put("/api/favorites/{ticker}")
+def add_favorite(ticker: str) -> dict[str, list[str]]:
+    favorites_repo.add_favorite(ticker)
+    return {"tickers": favorites_repo.list_favorites()}
+
+
+@app.delete("/api/favorites/{ticker}")
+def remove_favorite(ticker: str) -> dict[str, list[str]]:
+    favorites_repo.remove_favorite(ticker)
+    return {"tickers": favorites_repo.list_favorites()}
 
 
 @app.get("/api/cost/today")

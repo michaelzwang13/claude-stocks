@@ -171,6 +171,16 @@ export async function createPurchase(input: PurchaseInput): Promise<{ id: number
 export async function deletePurchase(id: number): Promise<void> {
   const res = await fetch(`/api/purchases/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+export interface FavoritesResponse {
+  tickers: string[];
+}
+
+export async function toggleFavorite(ticker: string, favored: boolean): Promise<FavoritesResponse> {
+  const res = await fetch(`/api/favorites/${encodeURIComponent(ticker)}`, {
+    method: favored ? "PUT" : "DELETE",
+  });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
 }
 
 export interface CostStatus {

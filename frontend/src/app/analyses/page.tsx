@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Filter, Info, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, Filter, Info, Search, Star } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
@@ -13,9 +13,11 @@ import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import {
   type BacktestAggregates,
   type CurrentQuotesResponse,
+  type FavoritesResponse,
   fetcher,
   type LogosResponse,
   type Rating,
+  toggleFavorite,
 } from "@/lib/api";
 import { cn, formatPct, formatUSD, relativeTime, shortDate } from "@/lib/utils";
 
@@ -72,8 +74,29 @@ export default function PastAnalysesPage() {
     { revalidateOnFocus: false, dedupingInterval: 60 * 60 * 1000 },
   );
 
+  const { data: favorites, mutate: mutateFavorites } = useSWR<FavoritesResponse>(
+    "/api/favorites",
+    fetcher,
+  );
+  const favoriteSet = useMemo(
+    () => new Set(favorites?.tickers ?? []),
+    [favorites],
+  );
+
+  async function onToggleFavorite(ticker: string) {
+    const wasFavored = favoriteSet.has(ticker);
+    const nextTickers = wasFavored
+      ? (favorites?.tickers ?? []).filter((t) => t !== ticker)
+      : [...(favorites?.tickers ?? []), ticker].sort();
+    await mutateFavorites(
+      () => toggleFavorite(ticker, !wasFavored),
+      { optimisticData: { tickers: nextTickers }, revalidate: false, rollbackOnError: true },
+    );
+  }
+
   const [search, setSearch] = useState("");
   const [ratingFilter, setRatingFilter] = useState<Rating | "ALL">("ALL");
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
 
   // Hydrate sort from sessionStorage on mount. The persist effect must skip
@@ -108,6 +131,7 @@ export default function PastAnalysesPage() {
     const rows = data.per_analysis.filter((r) => {
       if (ratingFilter !== "ALL" && r.overall_rating !== ratingFilter) return false;
       if (search && !r.ticker.includes(search.toUpperCase())) return false;
+      if (favoritesOnly && !favoriteSet.has(r.ticker)) return false;
       return true;
     });
     rows.sort((a, b) => {
@@ -121,7 +145,7 @@ export default function PastAnalysesPage() {
       return sort.dir === "asc" ? (an as number) - (bn as number) : (bn as number) - (an as number);
     });
     return rows;
-  }, [data, search, ratingFilter, sort]);
+  }, [data, search, ratingFilter, favoritesOnly, favoriteSet, sort]);
 
   function toggleSort(k: SortKey) {
     setSort((prev) =>
@@ -181,6 +205,23 @@ export default function PastAnalysesPage() {
                 </button>
               ))}
             </div>
+            <Tooltip content={favoritesOnly ? "Showing favorites only" : "Show favorites only"}>
+              <button
+                onClick={() => setFavoritesOnly((v) => !v)}
+                className={cn(
+                  "inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border-2)] transition-colors cursor-pointer",
+                  favoritesOnly
+                    ? "bg-[var(--bg-elev-2)] text-[var(--accent)]"
+                    : "bg-[var(--bg-elev-1)] text-[var(--text-3)] hover:text-[var(--text-2)]",
+                )}
+                aria-pressed={favoritesOnly}
+                aria-label="Filter by favorites"
+              >
+                <Star
+                  className={cn("h-3.5 w-3.5", favoritesOnly && "fill-[var(--accent)]")}
+                />
+              </button>
+            </Tooltip>
           </div>
 
           {/* Table */}
@@ -188,6 +229,7 @@ export default function PastAnalysesPage() {
             <table className="w-full font-mono text-[12px]">
               <thead className="bg-[var(--bg-elev-2)]/40">
                 <tr className="text-left text-[10px] uppercase tracking-[0.14em] text-[var(--text-3)]">
+                  <th className="w-8 px-2 py-2.5 font-normal" aria-label="Favorite" />
                   <Th label="When"     sortable sortKey="created_at"   currentKey={sort.key} currentDir={sort.dir} onSort={toggleSort} />
                   <Th label="Ticker"   sortable sortKey="ticker"       currentKey={sort.key} currentDir={sort.dir} onSort={toggleSort} />
                   <Th label="Rating" />
@@ -210,14 +252,14 @@ export default function PastAnalysesPage() {
                 {isLoading &&
                   Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={12} className="p-3">
+                      <td colSpan={13} className="p-3">
                         <div className="h-5 rounded shimmer" />
                       </td>
                     </tr>
                   ))}
                 {!isLoading && filtered.length === 0 && (
                   <tr>
-                    <td colSpan={12} className="p-10 text-center font-mono text-[12px] text-[var(--text-3)]">
+                    <td colSpan={13} className="p-10 text-center font-mono text-[12px] text-[var(--text-3)]">
                       No analyses match the current filters.
                     </td>
                   </tr>
@@ -228,6 +270,8 @@ export default function PastAnalysesPage() {
                     row={r}
                     currentPrice={quotes?.quotes[r.ticker]?.price ?? null}
                     logoUrl={logos?.logos[r.ticker] ?? null}
+                    isFavorite={favoriteSet.has(r.ticker)}
+                    onToggleFavorite={onToggleFavorite}
                   />
                 ))}
               </tbody>
@@ -289,15 +333,38 @@ function AnalysisRow({
   row,
   currentPrice,
   logoUrl,
+  isFavorite,
+  onToggleFavorite,
 }: {
   row: Row;
   currentPrice: number | null;
   logoUrl: string | null;
+  isFavorite: boolean;
+  onToggleFavorite: (ticker: string) => void;
 }) {
   const pctSinceEntry =
     currentPrice !== null ? (currentPrice / row.entry_price - 1) * 100 : null;
   return (
     <tr className="group relative transition-colors hover:bg-[var(--bg-elev-2)]/40">
+      <td className="px-2 py-2.5">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite(row.ticker);
+          }}
+          className="relative z-10 inline-flex h-6 w-6 items-center justify-center rounded text-[var(--text-4)] hover:text-[var(--accent)] cursor-pointer"
+          aria-label={isFavorite ? `Unfavorite ${row.ticker}` : `Favorite ${row.ticker}`}
+          aria-pressed={isFavorite}
+        >
+          <Star
+            className={cn(
+              "h-3.5 w-3.5 transition-colors",
+              isFavorite && "fill-[var(--accent)] text-[var(--accent)]",
+            )}
+          />
+        </button>
+      </td>
       <td className="px-3 py-2.5">
         <Link href={`/analyses/${row.id}`} className="absolute inset-0" />
         <div className="text-[var(--text-2)]">{shortDate(row.created_at)}</div>
