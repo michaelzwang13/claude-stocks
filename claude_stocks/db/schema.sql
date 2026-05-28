@@ -65,3 +65,8 @@ CREATE TABLE IF NOT EXISTS provider_cache (
     expires_at  TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_provider_cache_expires ON provider_cache(expires_at);
+
+CREATE TABLE IF NOT EXISTS favorites (
+    ticker      TEXT    PRIMARY KEY,
+    created_at  TEXT    NOT NULL
+);

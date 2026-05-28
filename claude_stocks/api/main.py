@@ -33,7 +33,7 @@ from claude_stocks.config import (
 )
 from claude_stocks.data.base import dataclass_to_jsonable
 from claude_stocks.data.composite import build_default_provider
-from claude_stocks.db import analyses_repo, performance_repo
+from claude_stocks.db import analyses_repo, favorites_repo, performance_repo
 from claude_stocks.db.connection import get_conn
 from claude_stocks.db.migrations import apply_schema
 
@@ -490,6 +490,26 @@ def backtest_aggregates() -> dict[str, Any]:
         "per_analysis": [dict(r) for r in per_analysis],
         "last_refresh_at": performance_repo.last_refresh_at(),
     }
+
+
+# ---------- favorites ---------------------------------------------------------
+
+
+@app.get("/api/favorites")
+def list_favorites() -> dict[str, list[str]]:
+    return {"tickers": favorites_repo.list_favorites()}
+
+
+@app.put("/api/favorites/{ticker}")
+def add_favorite(ticker: str) -> dict[str, list[str]]:
+    favorites_repo.add_favorite(ticker)
+    return {"tickers": favorites_repo.list_favorites()}
+
+
+@app.delete("/api/favorites/{ticker}")
+def remove_favorite(ticker: str) -> dict[str, list[str]]:
+    favorites_repo.remove_favorite(ticker)
+    return {"tickers": favorites_repo.list_favorites()}
 
 
 @app.get("/api/cost/today")
