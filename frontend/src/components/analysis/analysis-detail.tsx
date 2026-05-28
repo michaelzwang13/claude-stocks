@@ -8,19 +8,27 @@ import {
   Layers,
   ScrollText,
   Sparkles,
+  Trash2,
+  Wallet,
 } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 import {
   type AnalysisDetail as AnalysisDetailType,
+  deletePurchase,
   fetcher,
   type LogosResponse,
   type PerformanceSnapshot,
+  type Purchase,
+  type PurchasesResponse,
 } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import { RatingPill } from "@/components/ui/rating-pill";
 import { Stat } from "@/components/ui/stat";
 import { TickerLogo } from "@/components/ui/ticker-logo";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { BuyDialog } from "@/components/portfolio/buy-dialog";
 import { FactorCard } from "./factor-card";
 import { cn, formatPct, formatUSD, relativeTime, shortDate } from "@/lib/utils";
 
@@ -35,9 +43,27 @@ export function AnalysisDetail({ data }: { data: AnalysisDetailType }) {
     .map((n) => factorByName[n])
     .filter(Boolean);
 
+  const positionsKey = `/api/purchases?ticker=${encodeURIComponent(data.ticker)}`;
+  const { data: positions, mutate: mutatePositions } = useSWR<PurchasesResponse>(
+    positionsKey,
+    fetcher,
+    { refreshInterval: 5 * 60 * 1000 },
+  );
+
   return (
+    <TooltipProvider>
     <div className="space-y-6">
-      <AnalysisHeader data={data} />
+      <AnalysisHeader
+        data={data}
+        onPurchaseCreated={() => mutatePositions()}
+      />
+
+      {positions && positions.purchases.length > 0 && (
+        <YourPositionCard
+          positions={positions.purchases}
+          onDeleted={() => mutatePositions()}
+        />
+      )}
 
       <div className="grid gap-3 lg:grid-cols-5">
         {orderedFactors.map((f) => (
@@ -156,6 +182,7 @@ export function AnalysisDetail({ data }: { data: AnalysisDetailType }) {
         </Tabs.Root>
       </Panel>
     </div>
+    </TooltipProvider>
   );
 }
 
@@ -178,7 +205,13 @@ function TabTrigger({ value, label, icon }: { value: string; label: string; icon
   );
 }
 
-function AnalysisHeader({ data }: { data: AnalysisDetailType }) {
+function AnalysisHeader({
+  data,
+  onPurchaseCreated,
+}: {
+  data: AnalysisDetailType;
+  onPurchaseCreated: () => void;
+}) {
   const { data: logos } = useSWR<LogosResponse>(
     `/api/logos?tickers=${encodeURIComponent(data.ticker)}`,
     fetcher,
@@ -222,6 +255,17 @@ function AnalysisHeader({ data }: { data: AnalysisDetailType }) {
             <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--text-3)]">
               Spike · {data.spike_potential}
             </span>
+            <BuyDialog
+              ticker={data.ticker}
+              analysisId={data.id}
+              onCreated={onPurchaseCreated}
+              trigger={
+                <Button size="xs" variant="secondary" className="ml-1">
+                  <Wallet className="h-3 w-3" />
+                  Record buy
+                </Button>
+              }
+            />
           </div>
         </div>
 
@@ -231,6 +275,159 @@ function AnalysisHeader({ data }: { data: AnalysisDetailType }) {
           <Stat label="Entry price" value={formatUSD(data.entry_price)} hint="at analysis time" />
           <Stat label="Cost"        value={formatUSD(data.total_cost_usd, { digits: 4 })} hint="API spend" />
         </div>
+      </div>
+    </Panel>
+  );
+}
+
+function YourPositionCard({
+  positions,
+  onDeleted,
+}: {
+  positions: Purchase[];
+  onDeleted: () => void;
+}) {
+  const totals = positions.reduce(
+    (acc, p) => {
+      acc.cost += p.cost_basis_usd;
+      if (p.current_price !== null) {
+        acc.market += p.current_price * p.shares;
+        acc.realizable = true;
+      }
+      return acc;
+    },
+    { cost: 0, market: 0, realizable: false },
+  );
+  const pnl = totals.realizable ? totals.market - totals.cost : null;
+  const pct = totals.realizable && totals.cost > 0 ? (pnl! / totals.cost) * 100 : null;
+
+  async function onDelete(id: number) {
+    if (!confirm("Delete this position?")) return;
+    await deletePurchase(id);
+    onDeleted();
+  }
+
+  return (
+    <Panel padding="md">
+      <PanelHeader
+        label="Your position"
+        hint={`${positions.length} lot${positions.length === 1 ? "" : "s"} · live P&L`}
+        right={
+          <div className="flex items-baseline gap-4">
+            <div className="text-right">
+              <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--text-3)]">
+                P&L
+              </div>
+              <div
+                className={cn(
+                  "font-mono text-[18px] tabular-nums",
+                  pnl === null
+                    ? "text-[var(--text-4)]"
+                    : pnl >= 0
+                      ? "text-[var(--bull)]"
+                      : "text-[var(--bear)]",
+                )}
+              >
+                {pnl === null ? "—" : formatUSD(pnl, { sign: true })}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--text-3)]">
+                Return
+              </div>
+              <div
+                className={cn(
+                  "font-mono text-[18px] tabular-nums",
+                  pct === null
+                    ? "text-[var(--text-4)]"
+                    : pct >= 0
+                      ? "text-[var(--bull)]"
+                      : "text-[var(--bear)]",
+                )}
+              >
+                {formatPct(pct)}
+              </div>
+            </div>
+          </div>
+        }
+      />
+      <div className="overflow-hidden rounded-lg border border-[var(--border-1)]">
+        <table className="w-full font-mono text-[12px]">
+          <thead className="bg-[var(--bg-elev-2)]/50">
+            <tr className="text-left text-[10px] uppercase tracking-[0.14em] text-[var(--text-3)]">
+              <th className="px-4 py-2.5 font-normal">Buy date</th>
+              <th className="px-4 py-2.5 text-right font-normal">Shares</th>
+              <th className="px-4 py-2.5 text-right font-normal">Buy price</th>
+              <th className="px-4 py-2.5 text-right font-normal">Now</th>
+              <th className="px-4 py-2.5 text-right font-normal">P&L</th>
+              <th className="px-4 py-2.5 text-right font-normal">Return</th>
+              <th className="px-4 py-2.5 text-right font-normal">α since</th>
+              <th className="w-8 px-2 py-2.5" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--border-1)]">
+            {positions.map((p) => (
+              <tr key={p.id} className="hover:bg-[var(--bg-elev-1)]/50">
+                <td className="px-4 py-2.5 text-[var(--text-2)]">{shortDate(p.buy_date)}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-[var(--text-2)]">
+                  {p.shares.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                </td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-[var(--text-2)]">
+                  {formatUSD(p.buy_price)}
+                </td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-[var(--text-1)]">
+                  {p.current_price === null ? "—" : formatUSD(p.current_price)}
+                </td>
+                <td
+                  className={cn(
+                    "px-4 py-2.5 text-right tabular-nums",
+                    p.pnl_usd === null
+                      ? "text-[var(--text-4)]"
+                      : p.pnl_usd >= 0
+                        ? "text-[var(--bull)]"
+                        : "text-[var(--bear)]",
+                  )}
+                >
+                  {p.pnl_usd === null ? "—" : formatUSD(p.pnl_usd, { sign: true })}
+                </td>
+                <td
+                  className={cn(
+                    "px-4 py-2.5 text-right tabular-nums",
+                    p.return_pct === null
+                      ? "text-[var(--text-4)]"
+                      : p.return_pct >= 0
+                        ? "text-[var(--bull)]"
+                        : "text-[var(--bear)]",
+                  )}
+                >
+                  {formatPct(p.return_pct)}
+                </td>
+                <td
+                  className={cn(
+                    "px-4 py-2.5 text-right tabular-nums font-semibold",
+                    p.alpha_pct === null
+                      ? "text-[var(--text-4)]"
+                      : p.alpha_pct >= 0
+                        ? "text-[var(--bull)]"
+                        : "text-[var(--bear)]",
+                  )}
+                >
+                  {formatPct(p.alpha_pct)}
+                </td>
+                <td className="px-2 py-2.5 text-right">
+                  <button
+                    type="button"
+                    onClick={() => onDelete(p.id)}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--text-4)] hover:text-[var(--bear)] cursor-pointer"
+                    aria-label="Delete position"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </Panel>
   );

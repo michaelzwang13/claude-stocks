@@ -33,7 +33,7 @@ from claude_stocks.config import (
 )
 from claude_stocks.data.base import dataclass_to_jsonable
 from claude_stocks.data.composite import build_default_provider
-from claude_stocks.db import analyses_repo, performance_repo
+from claude_stocks.db import analyses_repo, performance_repo, prices_repo, purchases_repo
 from claude_stocks.db.connection import get_conn
 from claude_stocks.db.migrations import apply_schema
 
@@ -490,6 +490,117 @@ def backtest_aggregates() -> dict[str, Any]:
         "per_analysis": [dict(r) for r in per_analysis],
         "last_refresh_at": performance_repo.last_refresh_at(),
     }
+
+
+# ---------- purchases ---------------------------------------------------------
+
+
+class PurchaseInput(BaseModel):
+    ticker: str
+    buy_date: str  # YYYY-MM-DD
+    buy_price: float = Field(gt=0)
+    shares: float = Field(default=1.0, gt=0)
+    analysis_id: int | None = None
+    notes: str | None = None
+
+
+def _enrich_purchases(records: list[purchases_repo.PurchaseRecord]) -> list[dict[str, Any]]:
+    """Attach current price, SPY-return-since-buy, P&L, alpha to each row."""
+    from datetime import date as _date
+
+    if not records:
+        return []
+
+    provider = build_default_provider()
+    unique_tickers = sorted({r.ticker for r in records} | {"SPY"})
+
+    current: dict[str, float | None] = {}
+    for t in unique_tickers:
+        try:
+            current[t] = provider.get_quote(t).price
+        except Exception:
+            current[t] = None
+
+    spy_now = current.get("SPY")
+
+    out: list[dict[str, Any]] = []
+    for r in records:
+        cur = current.get(r.ticker)
+        try:
+            buy_d = _date.fromisoformat(r.buy_date)
+            spy_at_buy = prices_repo.nearest_trading_day_close("SPY", buy_d)
+        except Exception:
+            spy_at_buy = None
+
+        return_pct = None if cur is None else (cur / r.buy_price - 1) * 100
+        spy_return_pct = (
+            None
+            if (spy_now is None or spy_at_buy is None)
+            else (spy_now / spy_at_buy - 1) * 100
+        )
+        alpha_pct = (
+            None
+            if (return_pct is None or spy_return_pct is None)
+            else return_pct - spy_return_pct
+        )
+        pnl_usd = None if cur is None else (cur - r.buy_price) * r.shares
+
+        out.append(
+            {
+                "id": r.id,
+                "ticker": r.ticker,
+                "buy_date": r.buy_date,
+                "buy_price": r.buy_price,
+                "shares": r.shares,
+                "analysis_id": r.analysis_id,
+                "notes": r.notes,
+                "created_at": r.created_at,
+                "current_price": cur,
+                "return_pct": return_pct,
+                "spy_return_pct": spy_return_pct,
+                "alpha_pct": alpha_pct,
+                "pnl_usd": pnl_usd,
+                "cost_basis_usd": r.buy_price * r.shares,
+            }
+        )
+    return out
+
+
+@app.get("/api/purchases")
+def list_purchases(ticker: str | None = None) -> dict[str, list[dict[str, Any]]]:
+    records = (
+        purchases_repo.list_by_ticker(ticker) if ticker else purchases_repo.list_all()
+    )
+    return {"purchases": _enrich_purchases(records)}
+
+
+@app.post("/api/purchases")
+def create_purchase(req: PurchaseInput) -> dict[str, Any]:
+    from datetime import date as _date
+
+    try:
+        _date.fromisoformat(req.buy_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="buy_date must be YYYY-MM-DD")
+
+    if req.analysis_id is not None and analyses_repo.get_by_id(req.analysis_id) is None:
+        raise HTTPException(status_code=400, detail="analysis_id does not exist")
+
+    purchase_id = purchases_repo.add(
+        ticker=req.ticker,
+        buy_date=req.buy_date,
+        buy_price=req.buy_price,
+        shares=req.shares,
+        analysis_id=req.analysis_id,
+        notes=req.notes,
+    )
+    return {"id": purchase_id}
+
+
+@app.delete("/api/purchases/{purchase_id}")
+def delete_purchase(purchase_id: int) -> dict[str, bool]:
+    purchases_repo.delete(purchase_id)
+    return {"ok": True}
 
 
 @app.get("/api/cost/today")

@@ -125,6 +125,54 @@ export interface LogosResponse {
   logos: Record<string, string | null>;
 }
 
+export interface Purchase {
+  id: number;
+  ticker: string;
+  buy_date: string;
+  buy_price: number;
+  shares: number;
+  analysis_id: number | null;
+  notes: string | null;
+  created_at: string;
+  current_price: number | null;
+  return_pct: number | null;
+  spy_return_pct: number | null;
+  alpha_pct: number | null;
+  pnl_usd: number | null;
+  cost_basis_usd: number;
+}
+
+export interface PurchasesResponse {
+  purchases: Purchase[];
+}
+
+export interface PurchaseInput {
+  ticker: string;
+  buy_date: string;
+  buy_price: number;
+  shares?: number;
+  analysis_id?: number | null;
+  notes?: string | null;
+}
+
+export async function createPurchase(input: PurchaseInput): Promise<{ id: number }> {
+  const res = await fetch("/api/purchases", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function deletePurchase(id: number): Promise<void> {
+  const res = await fetch(`/api/purchases/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+}
+
 export interface CostStatus {
   spent_usd: number;
   cap_usd: number;

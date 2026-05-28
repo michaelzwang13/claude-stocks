@@ -8,6 +8,7 @@ import {
   BarChart3,
   History,
   Search,
+  Wallet,
   Zap,
 } from "lucide-react";
 import { cn, formatUSD } from "@/lib/utils";
@@ -16,6 +17,7 @@ import { fetcher, type CostStatus } from "@/lib/api";
 const NAV = [
   { href: "/analyze", label: "Analyze",      icon: Search,    desc: "New ticker" },
   { href: "/analyses", label: "Past Analyses", icon: History,   desc: "Browse history" },
+  { href: "/portfolio", label: "Portfolio",  icon: Wallet,    desc: "Your positions" },
   { href: "/backtest", label: "Backtest",    icon: BarChart3, desc: "Forward returns" },
 ] as const;
 
