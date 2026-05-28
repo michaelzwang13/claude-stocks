@@ -171,6 +171,8 @@ export async function createPurchase(input: PurchaseInput): Promise<{ id: number
 export async function deletePurchase(id: number): Promise<void> {
   const res = await fetch(`/api/purchases/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+}
+
 export interface FavoritesResponse {
   tickers: string[];
 }
