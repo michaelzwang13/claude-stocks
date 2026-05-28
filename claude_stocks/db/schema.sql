@@ -66,6 +66,17 @@ CREATE TABLE IF NOT EXISTS provider_cache (
 );
 CREATE INDEX IF NOT EXISTS idx_provider_cache_expires ON provider_cache(expires_at);
 
+CREATE TABLE IF NOT EXISTS purchases (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker       TEXT    NOT NULL,
+    buy_date     TEXT    NOT NULL,
+    buy_price    REAL    NOT NULL,
+    shares       REAL    NOT NULL DEFAULT 1.0,
+    analysis_id  INTEGER REFERENCES analyses(id) ON DELETE SET NULL,
+    notes        TEXT,
+    created_at   TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_purchases_ticker ON purchases(ticker);
 CREATE TABLE IF NOT EXISTS favorites (
     ticker      TEXT    PRIMARY KEY,
     created_at  TEXT    NOT NULL
