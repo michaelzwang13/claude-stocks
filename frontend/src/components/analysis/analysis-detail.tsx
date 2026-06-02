@@ -1,14 +1,17 @@
 "use client";
 
 import * as Tabs from "@radix-ui/react-tabs";
+import Link from "next/link";
 import {
   AlertTriangle,
   CalendarClock,
   Database,
   Layers,
+  RefreshCw,
   ScrollText,
   Sparkles,
   Trash2,
+  TrendingUp,
   Wallet,
 } from "lucide-react";
 import { useState } from "react";
@@ -239,9 +242,13 @@ function AnalysisHeader({
           <div className="flex items-center gap-4">
             <TickerLogo ticker={data.ticker} src={logoUrl} size={56} />
             <div className="flex items-baseline gap-4">
-              <span className="font-mono text-[44px] font-semibold leading-none tracking-tight text-[var(--text-1)]">
+              <Link
+                href={`/tickers/${encodeURIComponent(data.ticker)}`}
+                className="font-mono text-[44px] font-semibold leading-none tracking-tight text-[var(--text-1)] hover:text-[var(--accent)] transition-colors"
+                title={`View trend for ${data.ticker}`}
+              >
                 {data.ticker}
-              </span>
+              </Link>
               <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--text-3)]">
                 {shortDate(data.created_at)} · {relativeTime(data.created_at)}
               </span>
@@ -255,12 +262,24 @@ function AnalysisHeader({
             <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--text-3)]">
               Spike · {data.spike_potential}
             </span>
+            <Link href={`/tickers/${encodeURIComponent(data.ticker)}`}>
+              <Button size="xs" variant="ghost" className="ml-1">
+                <TrendingUp className="h-3 w-3" />
+                Trend
+              </Button>
+            </Link>
+            <Link href={`/analyze?ticker=${encodeURIComponent(data.ticker)}`}>
+              <Button size="xs" variant="secondary">
+                <RefreshCw className="h-3 w-3" />
+                Re-analyze
+              </Button>
+            </Link>
             <BuyDialog
               ticker={data.ticker}
               analysisId={data.id}
               onCreated={onPurchaseCreated}
               trigger={
-                <Button size="xs" variant="secondary" className="ml-1">
+                <Button size="xs" variant="secondary">
                   <Wallet className="h-3 w-3" />
                   Record buy
                 </Button>

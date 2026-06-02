@@ -224,6 +224,41 @@ def get_analysis(analysis_id: int) -> AnalysisDetail:
     return _detail_from_record(rec)
 
 
+@app.get("/api/tickers/{ticker}/series")
+def ticker_series(ticker: str) -> dict[str, Any]:
+    """Lightweight series of every analysis for a ticker.
+
+    Returns chart-ready points: overall score, rating, per-factor scores,
+    plus the analysis id so the UI can fetch full detail on demand. No
+    thesis or per-factor reasoning here — keep the payload small for
+    fast first paint.
+    """
+    ticker = ticker.upper().strip()
+    if not ticker:
+        raise HTTPException(status_code=400, detail="ticker required")
+
+    records = analyses_repo.list_by_ticker(ticker)
+    points = []
+    for r in records:
+        factor_scores: dict[str, float] = {}
+        for f in r.full_json.get("factors", []):
+            name = f.get("factor")
+            score = f.get("score")
+            if name is not None and score is not None:
+                factor_scores[name] = score
+        points.append(
+            {
+                "id": r.id,
+                "created_at": r.created_at,
+                "overall_rating": r.overall_rating,
+                "overall_score": r.overall_score,
+                "factor_scores": factor_scores,
+                "total_cost_usd": r.total_cost_usd,
+            }
+        )
+    return {"ticker": ticker, "count": len(points), "points": points}
+
+
 @app.post("/api/analyze")
 async def analyze_stream(req: AnalyzeRequest) -> StreamingResponse:
     """SSE stream of analysis progress.
