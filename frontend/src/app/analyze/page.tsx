@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { AppShell } from "@/components/shell/app-shell";
 import { AnalyzeForm } from "@/components/analysis/analyze-form";
 
@@ -13,7 +14,9 @@ export default function AnalyzePage() {
             Five factor analyses fire in parallel — valuation, growth, moat, sentiment, catalysts — then a synthesis call produces a structured BUY / HOLD / SELL rating with a 0–10 score, risks, and watch-list catalysts.
           </p>
         </div>
-        <AnalyzeForm />
+        <Suspense fallback={<div className="h-32 rounded shimmer" />}>
+          <AnalyzeForm />
+        </Suspense>
       </div>
     </AppShell>
   );

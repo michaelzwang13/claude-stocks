@@ -1,7 +1,7 @@
 "use client";
 
 import { Search, Sparkles } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   type AnalyzeEvent,
@@ -21,7 +21,9 @@ const POPULAR = ["AAPL", "NVDA", "MSFT", "TSLA", "META", "GOOGL", "AMZN", "PLTR"
 
 export function AnalyzeForm() {
   const router = useRouter();
-  const [ticker, setTicker] = useState("");
+  const searchParams = useSearchParams();
+  const initialTicker = searchParams.get("ticker")?.toUpperCase() ?? "";
+  const [ticker, setTicker] = useState(initialTicker);
   const [phase, setPhase] = useState<Phase>("idle");
   const [steps, setSteps] = useState<Step[]>(makeInitialSteps());
   const [factors, setFactors] = useState<Record<string, AnalyzeEvent extends infer E ? E extends { phase: "factor"; status: "done"; output: infer O } ? O : never : never>>({});

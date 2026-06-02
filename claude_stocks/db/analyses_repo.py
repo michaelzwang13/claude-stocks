@@ -130,6 +130,16 @@ def get_by_id(analysis_id: int) -> AnalysisRecord | None:
     return _row_to_record(row) if row else None
 
 
+def list_by_ticker(ticker: str) -> list[AnalysisRecord]:
+    """All analyses for a ticker, chronological (oldest first)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM analyses WHERE ticker = ? ORDER BY created_at ASC",
+            (ticker.upper(),),
+        ).fetchall()
+    return [_row_to_record(r) for r in rows]
+
+
 def distinct_tickers() -> list[str]:
     with get_conn() as conn:
         rows = conn.execute("SELECT DISTINCT ticker FROM analyses").fetchall()

@@ -125,6 +125,23 @@ export interface LogosResponse {
   logos: Record<string, string | null>;
 }
 
+export type FactorScores = Partial<Record<FactorName, number>>;
+
+export interface TickerSeriesPoint {
+  id: number;
+  created_at: string;
+  overall_rating: Rating;
+  overall_score: number;
+  factor_scores: FactorScores;
+  total_cost_usd: number;
+}
+
+export interface TickerSeriesResponse {
+  ticker: string;
+  count: number;
+  points: TickerSeriesPoint[];
+}
+
 export interface Purchase {
   id: number;
   ticker: string;

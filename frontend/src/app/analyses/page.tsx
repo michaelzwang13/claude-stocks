@@ -371,10 +371,15 @@ function AnalysisRow({
         <div className="text-[10px] text-[var(--text-4)]">{relativeTime(row.created_at)}</div>
       </td>
       <td className="px-3 py-2.5">
-        <span className="inline-flex items-center gap-2">
+        <Link
+          href={`/tickers/${encodeURIComponent(row.ticker)}`}
+          onClick={(e) => e.stopPropagation()}
+          className="relative z-10 inline-flex items-center gap-2 hover:text-[var(--accent)] transition-colors"
+          title={`View trend for ${row.ticker}`}
+        >
           <TickerLogo ticker={row.ticker} src={logoUrl} size={20} />
-          <span className="font-semibold text-[var(--text-1)]">{row.ticker}</span>
-        </span>
+          <span className="font-semibold text-[var(--text-1)] group-hover:text-[var(--accent)]">{row.ticker}</span>
+        </Link>
       </td>
       <td className="px-3 py-2.5">
         <RatingPill rating={row.overall_rating} size="xs" />
