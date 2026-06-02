@@ -74,7 +74,10 @@ CREATE TABLE IF NOT EXISTS purchases (
     shares       REAL    NOT NULL DEFAULT 1.0,
     analysis_id  INTEGER REFERENCES analyses(id) ON DELETE SET NULL,
     notes        TEXT,
-    created_at   TEXT    NOT NULL
+    created_at   TEXT    NOT NULL,
+    sell_date    TEXT,
+    sell_price   REAL,
+    sell_notes   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_purchases_ticker ON purchases(ticker);
 CREATE TABLE IF NOT EXISTS favorites (

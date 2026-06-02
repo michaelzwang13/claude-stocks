@@ -1,6 +1,7 @@
 "use client";
 
 import * as Tabs from "@radix-ui/react-tabs";
+import Link from "next/link";
 import {
   AlertTriangle,
   CalendarClock,
@@ -29,6 +30,7 @@ import { Stat } from "@/components/ui/stat";
 import { TickerLogo } from "@/components/ui/ticker-logo";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BuyDialog } from "@/components/portfolio/buy-dialog";
+import { SellDialog } from "@/components/portfolio/sell-dialog";
 import { FactorCard } from "./factor-card";
 import { cn, formatPct, formatUSD, relativeTime, shortDate } from "@/lib/utils";
 
@@ -62,6 +64,7 @@ export function AnalysisDetail({ data }: { data: AnalysisDetailType }) {
         <YourPositionCard
           positions={positions.purchases}
           onDeleted={() => mutatePositions()}
+          onChanged={() => mutatePositions()}
         />
       )}
 
@@ -283,11 +286,16 @@ function AnalysisHeader({
 function YourPositionCard({
   positions,
   onDeleted,
+  onChanged,
 }: {
   positions: Purchase[];
   onDeleted: () => void;
+  onChanged: () => void;
 }) {
-  const totals = positions.reduce(
+  const open = positions.filter((p) => p.status === "open");
+  const closed = positions.filter((p) => p.status === "closed");
+
+  const totals = open.reduce(
     (acc, p) => {
       acc.cost += p.cost_basis_usd;
       if (p.current_price !== null) {
@@ -302,16 +310,34 @@ function YourPositionCard({
   const pct = totals.realizable && totals.cost > 0 ? (pnl! / totals.cost) * 100 : null;
 
   async function onDelete(id: number) {
-    if (!confirm("Delete this position?")) return;
+    if (!confirm("Delete this lot entirely?")) return;
     await deletePurchase(id);
     onDeleted();
+  }
+
+  // No open lots but past trades exist → render just the footer link
+  if (open.length === 0 && closed.length > 0) {
+    return (
+      <Panel padding="md">
+        <PanelHeader
+          label="Past trades on this ticker"
+          hint={`${closed.length} closed lot${closed.length === 1 ? "" : "s"}`}
+        />
+        <Link
+          href="/portfolio"
+          className="inline-flex items-center gap-1 font-mono text-[12px] text-[var(--accent)] hover:underline"
+        >
+          View in portfolio →
+        </Link>
+      </Panel>
+    );
   }
 
   return (
     <Panel padding="md">
       <PanelHeader
         label="Your position"
-        hint={`${positions.length} lot${positions.length === 1 ? "" : "s"} · live P&L`}
+        hint={`${open.length} open lot${open.length === 1 ? "" : "s"} · live P&L`}
         right={
           <div className="flex items-baseline gap-4">
             <div className="text-right">
@@ -362,11 +388,11 @@ function YourPositionCard({
               <th className="px-4 py-2.5 text-right font-normal">P&L</th>
               <th className="px-4 py-2.5 text-right font-normal">Return</th>
               <th className="px-4 py-2.5 text-right font-normal">α since</th>
-              <th className="w-8 px-2 py-2.5" />
+              <th className="w-28 px-2 py-2.5" />
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--border-1)]">
-            {positions.map((p) => (
+            {open.map((p) => (
               <tr key={p.id} className="hover:bg-[var(--bg-elev-1)]/50">
                 <td className="px-4 py-2.5 text-[var(--text-2)]">{shortDate(p.buy_date)}</td>
                 <td className="px-4 py-2.5 text-right tabular-nums text-[var(--text-2)]">
@@ -414,21 +440,42 @@ function YourPositionCard({
                 >
                   {formatPct(p.alpha_pct)}
                 </td>
-                <td className="px-2 py-2.5 text-right">
-                  <button
-                    type="button"
-                    onClick={() => onDelete(p.id)}
-                    className="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--text-4)] hover:text-[var(--bear)] cursor-pointer"
-                    aria-label="Delete position"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                <td className="px-2 py-2.5">
+                  <div className="flex items-center justify-end gap-1">
+                    <SellDialog
+                      purchase={p}
+                      onSold={onChanged}
+                      trigger={
+                        <Button size="xs" variant="secondary">
+                          Sell
+                        </Button>
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() => onDelete(p.id)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--text-4)] hover:text-[var(--bear)] cursor-pointer"
+                      aria-label="Delete lot"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {closed.length > 0 && (
+        <div className="mt-3 text-right">
+          <Link
+            href="/portfolio"
+            className="font-mono text-[11px] text-[var(--text-3)] hover:text-[var(--accent)]"
+          >
+            + {closed.length} closed lot{closed.length === 1 ? "" : "s"} on this ticker →
+          </Link>
+        </div>
+      )}
     </Panel>
   );
 }
