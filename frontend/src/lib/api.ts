@@ -125,6 +125,8 @@ export interface LogosResponse {
   logos: Record<string, string | null>;
 }
 
+export type PurchaseStatus = "open" | "closed";
+
 export interface Purchase {
   id: number;
   ticker: string;
@@ -134,16 +136,71 @@ export interface Purchase {
   analysis_id: number | null;
   notes: string | null;
   created_at: string;
+  sell_date: string | null;
+  sell_price: number | null;
+  sell_notes: string | null;
+  status: PurchaseStatus;
   current_price: number | null;
+  pnl_usd: number | null;
+  realized_pnl_usd: number | null;
   return_pct: number | null;
   spy_return_pct: number | null;
   alpha_pct: number | null;
-  pnl_usd: number | null;
+  days_held: number | null;
   cost_basis_usd: number;
+}
+
+export interface TradeRef {
+  ticker: string;
+  realized_pnl_usd: number;
+  return_pct: number;
+  sell_date: string;
+}
+
+export interface RealizedCurvePoint {
+  date: string;
+  cumulative_pnl_usd: number;
+  ticker: string;
+}
+
+export interface PortfolioStats {
+  open_count: number;
+  closed_count: number;
+  open_cost_basis_usd: number;
+  closed_cost_basis_usd: number;
+  unrealized_pnl_usd: number;
+  realized_pnl_usd: number;
+  all_time_pnl_usd: number;
+  all_time_return_pct: number | null;
+  win_rate_pct: number | null;
+  avg_alpha_pct_closed: number | null;
+  avg_days_held_closed: number | null;
+  best_trade: TradeRef | null;
+  worst_trade: TradeRef | null;
+  realized_curve: RealizedCurvePoint[];
 }
 
 export interface PurchasesResponse {
   purchases: Purchase[];
+  stats: PortfolioStats;
+}
+
+export interface SellInput {
+  sell_date: string;
+  sell_price: number;
+  sell_notes?: string | null;
+}
+
+export async function sellPurchase(id: number, input: SellInput): Promise<void> {
+  const res = await fetch(`/api/purchases/${id}/sell`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `${res.status} ${res.statusText}`);
+  }
 }
 
 export interface PurchaseInput {

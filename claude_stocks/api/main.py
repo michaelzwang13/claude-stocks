@@ -504,18 +504,28 @@ class PurchaseInput(BaseModel):
     notes: str | None = None
 
 
+class SellInput(BaseModel):
+    sell_date: str  # YYYY-MM-DD
+    sell_price: float = Field(gt=0)
+    sell_notes: str | None = None
+
+
 def _enrich_purchases(records: list[purchases_repo.PurchaseRecord]) -> list[dict[str, Any]]:
-    """Attach current price, SPY-return-since-buy, P&L, alpha to each row."""
+    """Attach price-derived metrics to each row. Open and closed lots
+    are enriched differently — closed lots use sell_price + SPY-at-sell;
+    open lots use current price + SPY-now.
+    """
     from datetime import date as _date
 
     if not records:
         return []
 
     provider = build_default_provider()
-    unique_tickers = sorted({r.ticker for r in records} | {"SPY"})
+    open_tickers = {r.ticker for r in records if not r.is_closed}
+    needs_quote = sorted(open_tickers | ({"SPY"} if open_tickers else set()))
 
     current: dict[str, float | None] = {}
-    for t in unique_tickers:
+    for t in needs_quote:
         try:
             current[t] = provider.get_quote(t).price
         except Exception:
@@ -525,53 +535,169 @@ def _enrich_purchases(records: list[purchases_repo.PurchaseRecord]) -> list[dict
 
     out: list[dict[str, Any]] = []
     for r in records:
-        cur = current.get(r.ticker)
         try:
             buy_d = _date.fromisoformat(r.buy_date)
             spy_at_buy = prices_repo.nearest_trading_day_close("SPY", buy_d)
         except Exception:
             spy_at_buy = None
 
-        return_pct = None if cur is None else (cur / r.buy_price - 1) * 100
-        spy_return_pct = (
-            None
-            if (spy_now is None or spy_at_buy is None)
-            else (spy_now / spy_at_buy - 1) * 100
-        )
-        alpha_pct = (
-            None
-            if (return_pct is None or spy_return_pct is None)
-            else return_pct - spy_return_pct
-        )
-        pnl_usd = None if cur is None else (cur - r.buy_price) * r.shares
+        base: dict[str, Any] = {
+            "id": r.id,
+            "ticker": r.ticker,
+            "buy_date": r.buy_date,
+            "buy_price": r.buy_price,
+            "shares": r.shares,
+            "analysis_id": r.analysis_id,
+            "notes": r.notes,
+            "created_at": r.created_at,
+            "sell_date": r.sell_date,
+            "sell_price": r.sell_price,
+            "sell_notes": r.sell_notes,
+            "cost_basis_usd": r.buy_price * r.shares,
+        }
 
-        out.append(
-            {
-                "id": r.id,
-                "ticker": r.ticker,
-                "buy_date": r.buy_date,
-                "buy_price": r.buy_price,
-                "shares": r.shares,
-                "analysis_id": r.analysis_id,
-                "notes": r.notes,
-                "created_at": r.created_at,
-                "current_price": cur,
+        if r.is_closed and r.sell_price is not None and r.sell_date is not None:
+            try:
+                sell_d = _date.fromisoformat(r.sell_date)
+                spy_at_sell = prices_repo.nearest_trading_day_close("SPY", sell_d)
+            except Exception:
+                sell_d = None
+                spy_at_sell = None
+
+            return_pct = (r.sell_price / r.buy_price - 1) * 100
+            spy_return_pct = (
+                None
+                if (spy_at_buy is None or spy_at_sell is None)
+                else (spy_at_sell / spy_at_buy - 1) * 100
+            )
+            alpha_pct = (
+                None if spy_return_pct is None else return_pct - spy_return_pct
+            )
+            realized_pnl_usd = (r.sell_price - r.buy_price) * r.shares
+            days_held = (
+                (sell_d - buy_d).days if sell_d is not None else None
+            )
+
+            base.update({
+                "status": "closed",
+                "current_price": None,
+                "pnl_usd": None,
+                "realized_pnl_usd": realized_pnl_usd,
                 "return_pct": return_pct,
                 "spy_return_pct": spy_return_pct,
                 "alpha_pct": alpha_pct,
+                "days_held": days_held,
+            })
+        else:
+            cur = current.get(r.ticker)
+            return_pct = None if cur is None else (cur / r.buy_price - 1) * 100
+            spy_return_pct = (
+                None
+                if (spy_now is None or spy_at_buy is None)
+                else (spy_now / spy_at_buy - 1) * 100
+            )
+            alpha_pct = (
+                None
+                if (return_pct is None or spy_return_pct is None)
+                else return_pct - spy_return_pct
+            )
+            pnl_usd = None if cur is None else (cur - r.buy_price) * r.shares
+
+            base.update({
+                "status": "open",
+                "current_price": cur,
                 "pnl_usd": pnl_usd,
-                "cost_basis_usd": r.buy_price * r.shares,
-            }
-        )
+                "realized_pnl_usd": None,
+                "return_pct": return_pct,
+                "spy_return_pct": spy_return_pct,
+                "alpha_pct": alpha_pct,
+                "days_held": None,
+            })
+        out.append(base)
     return out
 
 
+def _compute_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate trader stats from the enriched rows."""
+    open_rows = [r for r in rows if r["status"] == "open"]
+    closed_rows = [r for r in rows if r["status"] == "closed"]
+
+    open_cost = sum(r["cost_basis_usd"] for r in open_rows)
+    closed_cost = sum(r["cost_basis_usd"] for r in closed_rows)
+    unrealized = sum(r["pnl_usd"] for r in open_rows if r["pnl_usd"] is not None)
+    realized = sum(r["realized_pnl_usd"] for r in closed_rows)
+    all_time = unrealized + realized
+    total_cost = open_cost + closed_cost
+
+    closed_with_alpha = [r for r in closed_rows if r["alpha_pct"] is not None]
+    closed_with_days = [r for r in closed_rows if r["days_held"] is not None]
+
+    if closed_rows:
+        wins = sum(1 for r in closed_rows if r["realized_pnl_usd"] > 0)
+        win_rate = wins / len(closed_rows) * 100
+        best = max(closed_rows, key=lambda r: r["realized_pnl_usd"])
+        worst = min(closed_rows, key=lambda r: r["realized_pnl_usd"])
+        best_trade = {
+            "ticker": best["ticker"],
+            "realized_pnl_usd": best["realized_pnl_usd"],
+            "return_pct": best["return_pct"],
+            "sell_date": best["sell_date"],
+        }
+        worst_trade = {
+            "ticker": worst["ticker"],
+            "realized_pnl_usd": worst["realized_pnl_usd"],
+            "return_pct": worst["return_pct"],
+            "sell_date": worst["sell_date"],
+        }
+    else:
+        win_rate = None
+        best_trade = None
+        worst_trade = None
+
+    # Equity curve: cumulative realized P&L over time, sorted by sell_date.
+    curve = []
+    cumulative = 0.0
+    for r in sorted(closed_rows, key=lambda r: r["sell_date"] or ""):
+        cumulative += r["realized_pnl_usd"]
+        curve.append({
+            "date": r["sell_date"],
+            "cumulative_pnl_usd": cumulative,
+            "ticker": r["ticker"],
+        })
+
+    return {
+        "open_count": len(open_rows),
+        "closed_count": len(closed_rows),
+        "open_cost_basis_usd": open_cost,
+        "closed_cost_basis_usd": closed_cost,
+        "unrealized_pnl_usd": unrealized,
+        "realized_pnl_usd": realized,
+        "all_time_pnl_usd": all_time,
+        "all_time_return_pct": (all_time / total_cost * 100) if total_cost > 0 else None,
+        "win_rate_pct": win_rate,
+        "avg_alpha_pct_closed": (
+            sum(r["alpha_pct"] for r in closed_with_alpha) / len(closed_with_alpha)
+            if closed_with_alpha
+            else None
+        ),
+        "avg_days_held_closed": (
+            sum(r["days_held"] for r in closed_with_days) / len(closed_with_days)
+            if closed_with_days
+            else None
+        ),
+        "best_trade": best_trade,
+        "worst_trade": worst_trade,
+        "realized_curve": curve,
+    }
+
+
 @app.get("/api/purchases")
-def list_purchases(ticker: str | None = None) -> dict[str, list[dict[str, Any]]]:
+def list_purchases(ticker: str | None = None) -> dict[str, Any]:
     records = (
         purchases_repo.list_by_ticker(ticker) if ticker else purchases_repo.list_all()
     )
-    return {"purchases": _enrich_purchases(records)}
+    enriched = _enrich_purchases(records)
+    return {"purchases": enriched, "stats": _compute_stats(enriched)}
 
 
 @app.post("/api/purchases")
@@ -595,6 +721,27 @@ def create_purchase(req: PurchaseInput) -> dict[str, Any]:
         notes=req.notes,
     )
     return {"id": purchase_id}
+
+
+@app.post("/api/purchases/{purchase_id}/sell")
+def sell_purchase(purchase_id: int, req: SellInput) -> dict[str, Any]:
+    from datetime import date as _date
+
+    try:
+        _date.fromisoformat(req.sell_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="sell_date must be YYYY-MM-DD")
+
+    try:
+        purchases_repo.sell(
+            purchase_id,
+            sell_date=req.sell_date,
+            sell_price=req.sell_price,
+            sell_notes=req.sell_notes,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"id": purchase_id, "ok": True}
 
 
 @app.delete("/api/purchases/{purchase_id}")
